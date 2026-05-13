@@ -7,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 # LOAD MODEL
-model_path = "./student_reasoning_model (4)"
+model_path = "./student_reasoning_model_4"
 
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForSequenceClassification.from_pretrained(model_path)
