@@ -1,26 +1,39 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
+import os
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
 
-# LOAD MODEL
-model_path = "student_reasoning_model_4"
+# =========================
+# HOME ROUTE (FRONTEND)
+# =========================
+@app.route("/")
+def home():
+    return render_template("index.html")
 
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+# =========================
+# MODEL LOAD (FIXED SAFE PATH)
+# =========================
+MODEL_PATH = os.environ.get("MODEL_PATH", "./student_reasoning_model")
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
+model.eval()
 
 print("MODEL LOADED SUCCESSFULLY")
 
 
-# MODEL INFERENCE FUNCTION
+# =========================
+# INFERENCE FUNCTION
+# =========================
 def analyze_argument(text):
-
     inputs = tokenizer(
         text,
         return_tensors="pt",
@@ -33,39 +46,46 @@ def analyze_argument(text):
 
     with torch.no_grad():
         outputs = model(**inputs)
-        score = outputs.logits.squeeze().item()
+        logits = outputs.logits
 
-    score = max(0, min(1, score))
+        # FIX: safer handling (works for 1D or 2D output)
+        if logits.shape[-1] == 1:
+            score = torch.sigmoid(logits).item()
+        else:
+            score = torch.softmax(logits, dim=-1)[0][1].item()
 
+    score = max(0.0, min(1.0, float(score)))
     return round(score, 4)
 
 
+# =========================
 # API ROUTE
+# =========================
 @app.route("/analyze", methods=["POST"])
 def analyze():
+    data = request.get_json(force=True)
+    text = data.get("text", "")
 
-    data = request.json
-    text = data["text"]
+    if not text.strip():
+        return jsonify({
+            "error": "Empty input"
+        }), 400
 
-    # SHORT / NON-ARGUMENT DETECTION
+    # SHORT INPUT CHECK
     if len(text.split()) < 8:
         return jsonify({
             "score": 0.10,
             "logic": "Input is too brief to contain meaningful argumentative structure.",
-
             "evidence": "No supporting evidence or justification detected.",
-
             "reasoning": "The response appears conversational rather than analytical.",
-
             "communication": "Please provide a complete argument or explanation for deeper analysis."
         })
 
-    # GET MODEL SCORE
+    # MODEL SCORE
     score = analyze_argument(text)
 
-    # SCORE INTERPRETATION
+    # RESPONSE MAP
     if score >= 0.95:
-
         result = {
             "score": score,
             "logic": "Near-expert logical coherence with exceptionally strong analytical structure.",
@@ -75,7 +95,6 @@ def analyze():
         }
 
     elif score >= 0.90:
-
         result = {
             "score": score,
             "logic": "Exceptional logical coherence and advanced analytical structure.",
@@ -85,7 +104,6 @@ def analyze():
         }
 
     elif score >= 0.80:
-
         result = {
             "score": score,
             "logic": "Strong logical progression and structured reasoning.",
@@ -95,7 +113,6 @@ def analyze():
         }
 
     elif score >= 0.70:
-
         result = {
             "score": score,
             "logic": "Moderate logical consistency with some structural weaknesses.",
@@ -105,7 +122,6 @@ def analyze():
         }
 
     elif score >= 0.60:
-
         result = {
             "score": score,
             "logic": "Limited logical flow and weak argumentative structure.",
@@ -115,7 +131,6 @@ def analyze():
         }
 
     elif score >= 0.40:
-
         result = {
             "score": score,
             "logic": "Weak logical consistency with unclear argumentative progression.",
@@ -125,7 +140,6 @@ def analyze():
         }
 
     else:
-
         result = {
             "score": score,
             "logic": "Weak logical coherence and fragmented reasoning.",
@@ -137,6 +151,9 @@ def analyze():
     return jsonify(result)
 
 
-# RUN SERVER
+# =========================
+# RUN SERVER (PRODUCTION SAFE)
+# =========================
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    port = int(os.environ.get("PORT", 7860))
+    app.run(host="0.0.0.0", port=port)
