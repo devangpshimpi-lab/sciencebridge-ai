@@ -445,7 +445,7 @@ async function analyzeArgument() {
   // THIS URL WILL COME FROM YOUR PYTHON BACKEND
   // FOR NOW KEEP THIS
 
-  const response = await fetch("http://127.0.0.1:5001/analyze", {
+  const response = await fetch(window.location.origin + "/analyze", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
